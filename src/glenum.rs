@@ -64,7 +64,9 @@ pub enum ShaderParameter {
 /// Passed to bindBuffer or bufferData to specify the type of buffer being used.
 #[derive(Debug, Clone, Copy)]
 pub enum BufferKind {
+    /// to store vertex attributes
     Array = 0x8892,
+    /// to store vertex array indices
     ElementArray = 0x8893,
 }
 
