@@ -1,9 +1,5 @@
 #![recursion_limit = "512"]
 
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-
 #[cfg(not(target_arch = "wasm32"))]
 extern crate gl;
 

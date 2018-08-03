@@ -5,7 +5,7 @@
 */
 
 /// Constants passed to WebGLRenderingContext.vertexAttribPointer()
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum AttributeSize {
     One = 1,
     Two = 2,
@@ -86,7 +86,7 @@ pub enum BufferParameter {
     Usage = 0x8765,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum DataType {
     I8 = 0x1400,
     U8 = 0x1401,
