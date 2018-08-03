@@ -1,44 +1,73 @@
-# unrust
+# unrust / uni-gl
 
-[![Build Status](https://travis-ci.org/unrust/unrust.svg?branch=master)](https://travis-ci.org/unrust/unrust)
+[![Build Status](https://travis-ci.org/unrust/uni-gl.svg?branch=master)](https://travis-ci.org/unrust/uni-gl)
+[![Documentation](https://docs.rs/uni-gl/badge.svg)](https://docs.rs/uni-gl)
+[![crates.io](https://meritbadge.herokuapp.com/uni-gl)](https://crates.io/crates/uni-gl)
 
-A pure rust based (webgl 2.0 / native) game engine
+This library is a part of [Unrust](https://github.com/unrust/unrust), a pure rust native/wasm game engine.
+This library provides a native/wasm compatibility layer for following components :
+* OpenGL API
 
-Current Version : 0.1.1
+When used in conjonction with uni-app, on native target, it provides an OpenGL 3.2+ or OpenGLES 2.0+ Core Profile context.
+On web target, it provides a WebGL 2.0 context where available, else a WebGL 1.0 context.
 
 **This project is under heavily development, all api are very unstable until version 0.2**
 
-## Live Demo
-
-* [Boxes](https://edwin0cheng.github.io/unrust/demo/boxes)
-* [Sponza](https://edwin0cheng.github.io/unrust/demo/sponza)
-* [Sound](https://edwin0cheng.github.io/unrust/demo/sound)
-* [Post-Processing](https://edwin0cheng.github.io/unrust/demo/postprocessing)
-* [MeshObj](https://edwin0cheng.github.io/unrust/demo/meshobj)
-* [Basic](https://edwin0cheng.github.io/unrust/demo/basic)
-
 ## Usage 
 
-You can reference [basic.rs](https://github.com/edwin0cheng/unrust/blob/master/examples/basic.rs) for now, more documetations will be coming soon.
+```toml
+[dependencies]
+uni-app="0.1.*"
+uni-gl="0.1.*"
+```
+
+```rust
+extern crate uni_app;
+extern crate uni_gl;
+
+fn main() {
+    // create the game window (native) or canvas (web)
+    let app = uni_app::App::new(uni_app::AppConfig {
+        size: (800, 600),
+        title: "my game".to_owned(),
+        vsync: true,
+        show_cursor: true,
+        headless: false,
+        resizable: true,
+        fullscreen: false,
+    });
+    // retrieve the opengl context
+    let gl = uni_gl::WebGLRenderingContext::new(app.canvas());
+    // start game loop
+    app.run(move |_app: &mut uni_app::App| {
+        // do some openGL stuff
+        gl.clear_color(0.0, 0.0, 1.0, 1.0);
+        gl.clear(uni_gl::BufferBit::Color);
+    });
+}
+```
 
 ## Build
 
 ### As web app (wasm32-unknown-unknown)
 
-The target `wasm32-unknown-unknown` is currently only on the nightly builds as of Jan-30 2018.
+
+When targetting `wasm32-unknown-unknown`, stdweb currently requires Rust nightly.
 
 ```
-cargo install cargo-web # installs web sub command
+cargo install --force cargo-web # installs web sub command
 rustup override set nightly
 rustup target install wasm32-unknown-unknown
-cargo web start --example boxes --release
+cargo web start --example basic --release
 ```
 
 ### As desktop app (native-opengl)
 
+Native compilation works with current stable Rust (1.28)
+
 ```
-rustup override set nightly
-cargo run --example boxes --release
+rustup override set stable
+cargo run --example basic --release
 ```
 
 ## License

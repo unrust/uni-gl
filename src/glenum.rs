@@ -5,7 +5,7 @@
 */
 
 /// Constants passed to WebGLRenderingContext.vertexAttribPointer()
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum AttributeSize {
     One = 1,
     Two = 2,
@@ -64,7 +64,9 @@ pub enum ShaderParameter {
 /// Passed to bindBuffer or bufferData to specify the type of buffer being used.
 #[derive(Debug, Clone, Copy)]
 pub enum BufferKind {
+    /// to store vertex attributes
     Array = 0x8892,
+    /// to store vertex array indices
     ElementArray = 0x8893,
 }
 
@@ -86,7 +88,7 @@ pub enum BufferParameter {
     Usage = 0x8765,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum DataType {
     I8 = 0x1400,
     U8 = 0x1401,
