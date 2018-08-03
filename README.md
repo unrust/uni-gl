@@ -1,6 +1,8 @@
-# unrust
+# unrust / uni-gl
 
 [![Build Status](https://travis-ci.org/unrust/uni-gl.svg?branch=master)](https://travis-ci.org/unrust/uni-gl)
+[![Documentation](https://docs.rs/uni-gl/badge.svg)](https://docs.rs/uni-gl)
+[![crates.io](https://meritbadge.herokuapp.com/uni-gl)](https://crates.io/crates/uni-gl)
 
 This library is a part of [Unrust](https://github.com/unrust/unrust), a pure rust native/wasm game engine.
 This library provides a native/wasm compatibility layer for following components :

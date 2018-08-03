@@ -17,6 +17,7 @@ pub struct GLContext {
     pub is_webgl2: bool,
 }
 
+/// panics with a proper message if the last OpenGL call returned an error
 pub fn check_gl_error(msg: &str) {
     unsafe {
         use gl;
@@ -53,6 +54,14 @@ fn get_string(param: u32) -> String {
 pub type WebGLContext<'p> = Box<'p + for<'a> FnMut(&'a str) -> *const c_void>;
 
 impl WebGLRenderingContext {
+    /// create an OpenGL context.
+    ///
+    /// uni-gl should be use with the uni-app crate.
+    /// You can create a [`WebGLRenderingContext`] with following code :
+    /// ```
+    /// let app = uni_app::App::new(...);
+    /// let gl = uni_gl::WebGLRenderingContext::new(app.canvas());
+    /// ```
     pub fn new<'p>(mut loadfn: WebGLContext<'p>) -> WebGLRenderingContext {
         gl::load_with(move |name| loadfn(name));
 
@@ -81,6 +90,7 @@ impl GLContext {
         print!("{}", msg.into());
     }
 
+    /// create a new OpenGL buffer
     pub fn create_buffer(&self) -> WebGLBuffer {
         let mut buffer = WebGLBuffer(0);
         unsafe {
