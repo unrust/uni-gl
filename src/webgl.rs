@@ -49,23 +49,6 @@ extern "C" {
     );
 }
 
-// Using a "hidden feature" of stdweb to reduce the js serialized overhead
-macro_rules! __js_peel {
-    ($($token:tt)*) => {
-        _js_impl!( @stringify [@no_return] -> $($token)* )
-    };
-}
-
-macro_rules! js_raw {
-    ({$($token:tt)*}) => {
-        __js_raw_asm!(__js_peel!($($token)*))
-    };
-
-    ( {$($token:tt)*}, [$($args:tt)*]) => {
-        __js_raw_asm!(__js_peel!($($token)*), $($args)*)
-    };
-}
-
 impl GLContext {
     #[inline]
     pub fn log<T: Into<String>>(&self, _msg: T) {
@@ -134,11 +117,11 @@ impl GLContext {
 
     pub fn create_buffer(&self) -> WebGLBuffer {
         self.log("create_buffer");
-        let value = js_raw!({
-            var ctx = Module.gl.get(@{a0});
+        let value = js!({
+            var ctx = Module.gl.get(@{self.reference});
             return Module.gl.add(ctx.createBuffer());
-        }, [self.reference] );
-        WebGLBuffer(value)
+        });
+        WebGLBuffer(value.try_into().unwrap())
     }
 
     pub fn delete_buffer(&self, buffer: &WebGLBuffer) {
@@ -427,10 +410,10 @@ impl GLContext {
 
     pub fn draw_elements(&self, mode: Primitives, count: usize, kind: DataType, offset: u32) {
         self.log("draw_elemnts");
-        js_raw!({
-            var ctx = Module.gl.get(@{0});
-            ctx.drawElements(@{1},@{2},@{3},@{4});
-        }, [self.reference, mode as i32, count as i32, kind as i32, offset as i32 ]);
+        js!({
+            var ctx = Module.gl.get(@{self.reference});
+            ctx.drawElements(@{mode as i32},@{count as i32},@{kind as i32},@{offset as i32});
+        });
     }
 
     pub fn draw_arrays(&self, mode: Primitives, count: usize) {
@@ -851,13 +834,13 @@ impl GLContext {
 
     pub fn bind_vertex_array(&self, vao: &WebGLVertexArray) {
         self.log("bind_vertex_array");
-        js_raw!({
-            var ctx = Module.gl.get(@{0});
+        js!({
+            var ctx = Module.gl.get(@{self.reference});
             if (ctx.bindVertexArray) {
-                var vao = Module.gl.get(@{1});
+                var vao = Module.gl.get(@{vao.0});
                 ctx.bindVertexArray(vao);
             }
-        }, [self.reference, vao.0] );
+        });
     }
 
     pub fn unbind_vertex_array(&self, vao: &WebGLVertexArray) {
