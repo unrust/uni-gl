@@ -29,7 +29,6 @@ pub struct GLContext {
 /// panics with a proper message if the last OpenGL call returned an error
 pub fn check_gl_error(msg: &str) {
     unsafe {
-        use gl;
         let err = gl::GetError();
         if err != gl::NO_ERROR {
             panic!(
@@ -60,14 +59,14 @@ fn get_string(param: u32) -> String {
     };
 }
 
-pub type WebGLContext<'p> = Box<'p + for<'a> FnMut(&'a str) -> *const c_void>;
+pub type WebGLContext<'p> = Box<dyn 'p + for<'a> FnMut(&'a str) -> *const c_void>;
 
 impl WebGLRenderingContext {
     /// create an OpenGL context.
     ///
     /// uni-gl should be used with the uni-app crate.
     /// You can create a [`WebGLRenderingContext`] with following code :
-    /// ```
+    /// ```ignore
     /// let app = uni_app::App::new(...);
     /// let gl = uni_gl::WebGLRenderingContext::new(app.canvas());
     /// ```
@@ -167,7 +166,6 @@ impl GLContext {
     pub fn shader_source(&self, shader: &WebGLShader, source: &str) {
         let src = CString::new(source).unwrap();
         unsafe {
-            use std::ptr;
             gl::ShaderSource(shader.0, 1, &src.as_ptr(), ptr::null());
         }
         check_gl_error("shader_source");

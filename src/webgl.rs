@@ -56,16 +56,16 @@ impl GLContext {
     }
 
     pub fn print<T: Into<String>>(msg: T) {
-        js!{ console.log(@{msg.into()})};
+        js! { console.log(@{msg.into()})};
     }
 
     pub fn new<'a>(canvas: &Element) -> GLContext {
-        let gl = js!{
-            var gl = (@{canvas}).getContext("webgl2", {alpha:false});
+        let gl = js! {
+            var gl = (@{canvas}).getContext("webgl2", {alpha:false, preserveDrawingBuffer:true});
             var version = 2;
 
             if (!gl) {
-                gl = (@{canvas}).getContext("webgl", {alpha:false});
+                gl = (@{canvas}).getContext("webgl", {alpha:false, preserveDrawingBuffer:true});
                 version = 1;
             }
 
@@ -438,7 +438,7 @@ impl GLContext {
         self.log("read_pixels");
         let data_len = data.len();
 
-        let pixels = js!{
+        let pixels = js! {
             var ctx = Module.gl.get(@{&self.reference});
 
             var pixelValues = new Uint8Array(@{data_len as u32});
@@ -463,7 +463,7 @@ impl GLContext {
 
     pub fn pixel_storei(&self, storage: PixelStorageMode, value: i32) {
         self.log("pixel_storei");
-        js!{
+        js! {
             @(no_return)
             var ctx = Module.gl.get(@{&self.reference});
             ctx.pixelStorei(@{storage as i32},@{value});
@@ -514,14 +514,14 @@ impl GLContext {
         };
 
         if pixels.len() > 0 {
-            js!{
+            js! {
                 var p = @{params1}.concat(@{params2});
                 var ctx = Module.gl.get(@{&self.reference});
 
                 ctx.texImage2D(p[0],p[1], p[2] ,p[3],p[4],0,p[2],p[6],@{TypedArray::from(pixels)});
             };
         } else {
-            js!{
+            js! {
                 var p = @{params1}.concat(@{params2});
                 var ctx = Module.gl.get(@{&self.reference});
 
@@ -553,7 +553,7 @@ impl GLContext {
             js! { return [@{target as u32},@{level as u32},@{xoffset as u32},@{yoffset as u32}] };
         let params2 =
             js! { return [@{width as u32},@{height as u32},@{format as u32},@{kind as u32}] };
-        js!{
+        js! {
             var p = @{params1}.concat(@{params2});
             var ctx = Module.gl.get(@{&self.reference});
             ctx.texSubImage2D(p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],@{TypedArray::from(pixels)});
@@ -601,7 +601,7 @@ impl GLContext {
     ///
     pub fn create_texture(&self) -> WebGLTexture {
         self.log("create_tex");
-        let handle = js!{
+        let handle = js! {
             var ctx = Module.gl.get(@{&self.reference});
             return Module.gl.add(ctx.createTexture()) ;
         };
@@ -610,7 +610,7 @@ impl GLContext {
 
     pub fn delete_texture(&self, texture: &WebGLTexture) {
         self.log("delete_tex");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             var tex = Module.gl.get(@{&texture.0});
             ctx.deleteTexture(tex);
@@ -620,7 +620,7 @@ impl GLContext {
 
     pub fn active_texture(&self, active: u32) {
         self.log("active_texture");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.activeTexture(ctx.TEXTURE0 + @{active})
         }
@@ -628,7 +628,7 @@ impl GLContext {
 
     pub fn bind_texture(&self, texture: &WebGLTexture) {
         self.log("bind_tex");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             var tex = Module.gl.get(@{&texture.0});
             ctx.bindTexture(@{TextureKind::Texture2d as u32 }, tex)
@@ -637,7 +637,7 @@ impl GLContext {
 
     pub fn unbind_texture(&self) {
         self.log("unbind_tex");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.bindTexture(@{TextureKind::Texture2d as u32 },null)
         }
@@ -645,7 +645,7 @@ impl GLContext {
 
     pub fn bind_texture_cube(&self, texture: &WebGLTexture) {
         self.log("bind_tex_cube");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             var tex = Module.gl.get(@{&texture.0});
             ctx.bindTexture(@{TextureKind::TextureCubeMap as u32 }, tex)
@@ -654,7 +654,7 @@ impl GLContext {
 
     pub fn unbind_texture_cube(&self) {
         self.log("unbind_tex_cube");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.bindTexture(@{TextureKind::TextureCubeMap as u32 },null)
         }
@@ -662,7 +662,7 @@ impl GLContext {
 
     pub fn blend_equation(&self, eq: BlendEquation) {
         self.log("blend_equation");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.blendEquation(@{eq as u32});
         }
@@ -670,14 +670,14 @@ impl GLContext {
 
     pub fn blend_func(&self, b1: BlendMode, b2: BlendMode) {
         self.log("blend_func");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.blendFunc(@{b1 as u32},@{b2 as u32})
         }
     }
 
     pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32) {
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.blendColor(@{r}, @{g}, @{b}, @{a});
         }
@@ -739,7 +739,7 @@ impl GLContext {
         self.log("uniform_matrix_3fv");
         use std::mem;
         let array = unsafe { mem::transmute::<&[[f32; 3]; 3], &[f32; 9]>(value) as &[f32] };
-        js!{
+        js! {
             var ctx = Module.gl.get(@{self.reference});
             var loc = Module.gl.get(@{location.reference});
             ctx.uniformMatrix3fv(loc,false,@{&array})
@@ -749,7 +749,7 @@ impl GLContext {
     pub fn uniform_matrix_2fv(&self, location: &WebGLUniformLocation, value: &[[f32; 2]; 2]) {
         use std::mem;
         let array = unsafe { mem::transmute::<&[[f32; 2]; 2], &[f32; 4]>(value) as &[f32] };
-        js!{
+        js! {
             var ctx = Module.gl.get(@{self.reference});
             var loc = Module.gl.get(@{location.reference});
             ctx.uniformMatrix2fv(loc,false,@{&array})
@@ -757,7 +757,7 @@ impl GLContext {
     }
 
     pub fn uniform_1i(&self, location: &WebGLUniformLocation, value: i32) {
-        js!{
+        js! {
             @(no_return)
             var ctx = Module.gl.get(@{self.reference});
             var loc = Module.gl.get(@{location.reference});
@@ -766,7 +766,7 @@ impl GLContext {
     }
 
     pub fn uniform_1f(&self, location: &WebGLUniformLocation, value: f32) {
-        js!{
+        js! {
             @(no_return)
             var ctx = Module.gl.get(@{self.reference});
             var loc = Module.gl.get(@{location.reference});
@@ -775,7 +775,7 @@ impl GLContext {
     }
 
     pub fn uniform_2f(&self, location: &WebGLUniformLocation, value: (f32, f32)) {
-        js!{
+        js! {
             @(no_return)
             var p = [@{value.0},@{value.1}];
             var ctx = Module.gl.get(@{self.reference});
@@ -786,7 +786,7 @@ impl GLContext {
     }
 
     pub fn uniform_3f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32)) {
-        js!{
+        js! {
             @(no_return)
             var p = [@{value.0},@{value.1},@{value.2}];
             var ctx = Module.gl.get(@{self.reference});
@@ -797,7 +797,7 @@ impl GLContext {
     }
 
     pub fn uniform_4f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32, f32)) {
-        js!{
+        js! {
             @(no_return)
             var p = [@{value.0},@{value.1},@{value.2},@{value.3}];
             var ctx = Module.gl.get(@{self.reference});
@@ -980,7 +980,7 @@ impl GLContext {
 
     pub fn unbind_framebuffer(&self, buffer: Buffers) {
         self.log("unbind_framebuffer");
-        js!{
+        js! {
             var ctx = Module.gl.get(@{&self.reference});
             ctx.bindFramebuffer(@{buffer as u32},null)
         }

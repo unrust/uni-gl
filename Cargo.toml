@@ -1,6 +1,6 @@
 [package]
 name = "uni-gl"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Edwin Cheng <edwin0cheng@gmail.com>", "jice <jice.nospam@gmail.com>"]
 description = "Unrust native/wasm openGL compatibility layer"
 license = "MIT"
