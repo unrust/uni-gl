@@ -11,6 +11,7 @@ fn main() {
         headless: false,
         resizable: true,
         fullscreen: false,
+        intercept_close_request: false,
     });
     // retrieve the opengl context
     let gl = uni_gl::WebGLRenderingContext::new(app.canvas());

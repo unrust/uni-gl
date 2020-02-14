@@ -11,9 +11,7 @@ This library provides a native/wasm compatibility layer for following components
 When used in conjonction with uni-app, on native target, it provides an OpenGL 3.2+ or OpenGLES 2.0+ Core Profile context.
 On web target, it provides a WebGL 2.0 context where available, else a WebGL 1.0 context.
 
-**This project is under heavily development, all api are very unstable until version 0.2**
-
-## Usage 
+## Usage
 
 ```toml
 [dependencies]
@@ -35,6 +33,7 @@ fn main() {
         headless: false,
         resizable: true,
         fullscreen: false,
+        intercept_close_request: false,
     });
     // retrieve the opengl context
     let gl = uni_gl::WebGLRenderingContext::new(app.canvas());
