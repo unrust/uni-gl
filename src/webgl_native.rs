@@ -1,13 +1,14 @@
 use gl;
-use glenum::*;
-use std::ops::Deref;
 use std::os::raw::c_void;
 
-use common::*;
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::ops::Deref;
 use std::ptr;
 use std::str;
+
+use crate::common::*;
+use crate::glenum::*;
 
 pub type Reference = u32;
 
@@ -194,7 +195,7 @@ impl GLContext {
                 );
 
                 match String::from_utf8(buf) {
-                    Ok(s) => panic!(s),
+                    Ok(s) => panic!("{}", s),
                     Err(_) => panic!("Compile shader fail, reason unknown"),
                 }
             }
@@ -232,7 +233,7 @@ impl GLContext {
                 );
 
                 match String::from_utf8(buf) {
-                    Ok(s) => panic!(s),
+                    Ok(s) => panic!("{}", s),
                     Err(_) => panic!("Link program fail, reason unknown"),
                 }
             }

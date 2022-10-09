@@ -4,10 +4,6 @@
 extern crate gl;
 
 #[cfg(target_arch = "wasm32")]
-#[macro_use]
-extern crate stdweb;
-
-#[cfg(target_arch = "wasm32")]
 #[path = "webgl.rs"]
 pub mod webgl;
 
@@ -28,7 +24,7 @@ pub use glenum::*;
 pub use webgl::{GLContext, WebGLContext};
 
 pub mod common {
-    use std::ops::Deref;
+    use std::ops::{Deref, DerefMut};
 
     type Reference = super::webgl::Reference;
     type GLContext = super::GLContext;
@@ -39,16 +35,16 @@ pub mod common {
         pub common: GLContext,
     }
 
-    impl From<GLContext> for Reference {
-        fn from(w: GLContext) -> Reference {
-            w.reference
-        }
-    }
-
     impl Deref for WebGLRenderingContext {
         type Target = GLContext;
         fn deref(&self) -> &GLContext {
             &self.common
+        }
+    }
+
+    impl DerefMut for WebGLRenderingContext {
+        fn deref_mut(&mut self) -> &mut GLContext {
+            &mut self.common
         }
     }
 

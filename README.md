@@ -15,8 +15,8 @@ On web target, it provides a WebGL 2.0 context where available, else a WebGL 1.0
 
 ```toml
 [dependencies]
-uni-app="0.1.*"
-uni-gl="0.1.*"
+uni-app="0.2.*"
+uni-gl="0.2.*"
 ```
 
 ```rust
@@ -50,22 +50,13 @@ fn main() {
 
 ### As web app (wasm32-unknown-unknown)
 
-
-When targetting `wasm32-unknown-unknown`, stdweb currently requires Rust nightly.
-
 ```
-cargo install --force cargo-web # installs web sub command
-rustup override set nightly
 rustup target install wasm32-unknown-unknown
-cargo web start --example basic --release
 ```
 
 ### As desktop app (native-opengl)
 
-Native compilation works with current stable Rust (1.28)
-
 ```
-rustup override set stable
 cargo run --example basic --release
 ```
 
