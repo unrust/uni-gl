@@ -1,19 +1,46 @@
-use common::*;
-use glenum::*;
-use std::ops::Deref;
-use stdweb::unstable::TryInto;
-use stdweb::web::html_element::CanvasElement;
-use stdweb::web::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use js_sys::{Array, Object, Reflect};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use web_sys::HtmlCanvasElement;
+
+use crate::common::*;
+use crate::glenum::*;
 
 pub type Reference = i32;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct GLContext {
-    pub reference: Reference,
-    pub is_webgl2: bool,
+macro_rules! gl_call {
+    ($gl:expr, $func:ident, $($params:expr),*) => {{
+        match $gl {
+            WebContext::Gl2(gl) => gl.$func($($params,)*),
+            WebContext::Gl(gl) => gl.$func($($params,)*),
+        }
+    }};
+    ($gl:expr, $func:ident) => {{
+        match $gl {
+            WebContext::Gl2(gl) => gl.$func(),
+            WebContext::Gl(gl) => gl.$func(),
+        }
+    }};
 }
 
-pub type WebGLContext<'a> = &'a CanvasElement;
+#[derive(Debug, PartialEq, Clone)]
+pub enum WebContext {
+    Gl2(web_sys::WebGl2RenderingContext),
+    Gl(web_sys::WebGlRenderingContext),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct GLContext {
+    pub gl: WebContext,
+    pub is_webgl2: bool,
+    dict: RefCell<HashMap<i32, JsValue>>,
+    seq: RefCell<i32>,
+}
+
+pub type WebGLContext<'a> = &'a HtmlCanvasElement;
 
 impl WebGLRenderingContext {
     pub fn new(canvas: WebGLContext) -> WebGLRenderingContext {
@@ -23,274 +50,179 @@ impl WebGLRenderingContext {
     }
 }
 
-// Using a "hidden feature" of stdweb to reduce the js serialized overhead
-extern "C" {
-
-    fn __js_uniform4vf(
-        ctx: i32,
-        loc: i32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: f32,
-        _: *const u8,
-    );
-}
-
 impl GLContext {
     #[inline]
-    pub fn log<T: Into<String>>(&self, _msg: T) {
-        // js!{ console.log(@{msg.into()})};
+    pub fn log<T: Into<String>>(&self, msg: T) {
+        let msg: String = msg.into();
+        web_sys::console::log_1(&msg.into());
     }
 
     pub fn print<T: Into<String>>(msg: T) {
-        js! { console.log(@{msg.into()})};
+        let msg: String = msg.into();
+        web_sys::console::log_1(&msg.into());
     }
 
-    pub fn new<'a>(canvas: &Element) -> GLContext {
-        let gl = js! {
-            var gl = (@{canvas}).getContext("webgl2", {alpha:false, preserveDrawingBuffer:true});
-            var version = 2;
+    // utilities to store and retrieve js objects as u32
+    fn add(&self, val: JsValue) -> i32 {
+        let id = *self.seq.borrow();
+        *self.seq.borrow_mut() = id + 1;
+        self.dict.borrow_mut().insert(id, val);
+        id
+    }
+    fn get(&self, id: i32) -> Option<JsValue> {
+        self.dict.borrow().get(&id).map(|o| o.clone())
+    }
+    fn remove(&self, id: i32) {
+        self.dict.borrow_mut().remove(&id);
+    }
 
-            if (!gl) {
-                gl = (@{canvas}).getContext("webgl", {alpha:false, preserveDrawingBuffer:true});
-                version = 1;
-            }
+    pub fn new<'a>(canvas: &HtmlCanvasElement) -> GLContext {
+        let gl_attribs = Object::new();
+        Reflect::set(&gl_attribs, &JsValue::from_str("alpha"), &JsValue::FALSE).unwrap();
+        Reflect::set(
+            &gl_attribs,
+            &JsValue::from_str("preserveDrawingBuffer"),
+            &JsValue::TRUE,
+        )
+        .unwrap();
+        if let Ok(gl) = canvas
+            .get_context_with_context_options("webgl2", &gl_attribs)
+            .unwrap()
+            .unwrap()
+            .dyn_into::<web_sys::WebGl2RenderingContext>()
+        {
+            let context = GLContext {
+                gl: WebContext::Gl2(gl),
+                is_webgl2: true,
+                dict: RefCell::new(HashMap::new()),
+                seq: RefCell::new(1),
+            };
+            context.display_gl_info();
+            return context;
+        }
+        if let Ok(gl) = canvas
+            .get_context_with_context_options("webgl", &gl_attribs)
+            .unwrap()
+            .unwrap()
+            .dyn_into::<web_sys::WebGlRenderingContext>()
+        {
+            let context = GLContext {
+                gl: WebContext::Gl(gl),
+                is_webgl2: false,
+                dict: RefCell::new(HashMap::new()),
+                seq: RefCell::new(1),
+            };
+            context.display_gl_info();
+            return context;
+        }
+        panic!("No webgl context found");
+    }
 
-            var ext = gl.getExtension("WEBGL_depth_texture");
+    fn get_parameter(&self, id: u32) -> String {
+        gl_call!(&self.gl, get_parameter, id)
+            .unwrap()
+            .as_string()
+            .unwrap()
+    }
 
-            // Create gl related objects
-            if( !Module.gl) {
-                Module.gl = {};
-                Module.gl.counter = 1;
-                Module.gl.version = version;
+    fn get_extension(&self, ext_name: &str) -> bool {
+        gl_call!(&self.gl, get_extension, ext_name)
+            .unwrap()
+            .is_some()
+    }
 
-                Module.gl.matrix4x4 = new Float32Array([
-                    1.0, 0,   0,   0,
-                    0,   1.0, 0.0, 0,
-                    0,   0,   1.0, 0,
-                    0,   0,   0,   1.0
-                ]);
+    fn display_gl_info(&self) {
+        self.get_extension("WEBGL_depth_texture");
+        print(&format!(
+            "opengl {}",
+            self.get_parameter(web_sys::WebGl2RenderingContext::VERSION)
+        ));
+        print(&format!(
+            "shading language {}",
+            self.get_parameter(web_sys::WebGl2RenderingContext::SHADING_LANGUAGE_VERSION)
+        ));
+        print(&format!(
+            "vendor {}",
+            self.get_parameter(web_sys::WebGl2RenderingContext::VENDOR)
+        ));
+    }
 
-                Module.gl.pool = {};
-                Module.gl.get = function(id) {
-                    return Module.gl.pool[id];
-                };
-                Module.gl.add = function(o) {
-                    var c = Module.gl.counter;
-                    Module.gl.pool[c] = o;
-                    Module.gl.counter += 1;
-                    return c;
-                };
+    pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32) {
+        gl_call!(&self.gl, clear_color, r, g, b, a);
+    }
 
-                Module.gl.remove = function(id) {
-                    delete Module.gl.pool[id];
-                    return c;
-                };
-                console.log("opengl "+gl.getParameter(gl.VERSION));
-                console.log("shading language " + gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
-                console.log("vendor " + gl.getParameter(gl.VENDOR));
-            }
+    pub fn clear(&self, bit: BufferBit) {
+        gl_call!(&self.gl, clear, bit as u32);
+    }
 
-            return Module.gl.add(gl);
-        };
+    pub fn compile_shader(&self, shader: &WebGLShader) {
+        let shader: web_sys::WebGlShader = self.get(shader.0).unwrap().into();
+        gl_call!(&self.gl, compile_shader, &shader);
+        let compiled = gl_call!(
+            &self.gl,
+            get_shader_parameter,
+            &shader,
+            web_sys::WebGl2RenderingContext::COMPILE_STATUS
+        );
+        if !compiled {
+            print("Error in shader compilation :");
+            print(&format!(
+                "{}",
+                gl_call!(&self.gl, get_shader_info_log, &shader).unwrap(),
+            ));
+        }
+    }
 
-        let version: u32 = js!( return Module.gl.version; ).try_into().unwrap();
+    pub fn use_program(&self, program: &WebGLProgram) {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        gl_call!(&self.gl, use_program, Some(&program));
+    }
 
-        GLContext {
-            reference: gl.try_into().unwrap(),
-            is_webgl2: version == 2,
+    pub fn get_attrib_location(&self, program: &WebGLProgram, name: &str) -> Option<u32> {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        let loc = gl_call!(&self.gl, get_attrib_location, &program, name);
+        self.check_error(&format!("get_attrib_location {}", name));
+        if loc == -1 {
+            None
+        } else {
+            Some(loc as u32)
         }
     }
 
     pub fn create_buffer(&self) -> WebGLBuffer {
-        self.log("create_buffer");
-        let value = js!({
-            var ctx = Module.gl.get(@{self.reference});
-            return Module.gl.add(ctx.createBuffer());
-        });
-        WebGLBuffer(value.try_into().unwrap())
-    }
-
-    pub fn delete_buffer(&self, buffer: &WebGLBuffer) {
-        self.log("delete_buffer");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            var b = Module.gl.get(@{buffer.deref()});
-            ctx.deleteBuffer(b);
-        };
-    }
-
-    pub fn buffer_data(&self, kind: BufferKind, data: &[u8], draw: DrawMode) {
-        self.log("buffer_data");
-
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            ctx.bufferData(@{kind as u32},@{ TypedArray::from(data) }, @{draw as u32})
-        };
+        let val = gl_call!(&self.gl, create_buffer).unwrap();
+        WebGLBuffer(self.add(val.into()))
     }
 
     pub fn bind_buffer(&self, kind: BufferKind, buffer: &WebGLBuffer) {
-        self.log("bind_buffer");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            var buf = Module.gl.get(@{buffer.deref()});
-
-            ctx.bindBuffer(@{kind as u32},buf)
-        };
+        let buffer: web_sys::WebGlBuffer = self.get(buffer.0).unwrap().into();
+        gl_call!(&self.gl, bind_buffer, kind as u32, Some(&buffer));
     }
 
-    pub fn unbind_buffer(&self, kind: BufferKind) {
-        self.log("unbind_buffer");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.bindBuffer(@{kind as u32},null);
+    pub fn buffer_data(&self, kind: BufferKind, data: &[u8], draw: DrawMode) {
+        gl_call!(
+            &self.gl,
+            buffer_data_with_u8_array,
+            kind as u32,
+            data,
+            draw as u32
+        );
+    }
+
+    pub fn create_vertex_array(&self) -> WebGLVertexArray {
+        let val = match &self.gl {
+            WebContext::Gl2(gl) => gl.create_vertex_array().unwrap(),
+            WebContext::Gl(_gl) => JsValue::from_f64(0.0).into(), // not supported on webgl
+        };
+        WebGLVertexArray(self.add(val.into()))
+    }
+
+    pub fn bind_vertex_array(&self, vao: &WebGLVertexArray) {
+        let vao: web_sys::WebGlVertexArrayObject = self.get(vao.0).unwrap().into();
+        match &self.gl {
+            WebContext::Gl2(gl) => gl.bind_vertex_array(Some(&vao)),
+            WebContext::Gl(_) => (), // not supported on webgl
         }
-    }
-
-    pub fn create_shader(&self, kind: ShaderKind) -> WebGLShader {
-        self.log("create_shader");
-        let value = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            return Module.gl.add( ctx.createShader(@{ kind as u32 }) );
-        };
-
-        WebGLShader(value.try_into().unwrap())
-    }
-
-    pub fn shader_source(&self, shader: &WebGLShader, code: &str) {
-        self.log("shader_source");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            var shader = Module.gl.get(@{shader.deref()});
-            ctx.shaderSource(shader,@{ code })
-        };
-    }
-
-    pub fn compile_shader(&self, shader: &WebGLShader) {
-        self.log("compile_shader");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var shader = Module.gl.get(@{shader.deref()});
-            ctx.compileShader(shader);
-
-            var compiled = ctx.getShaderParameter(shader, 0x8B81);
-            if (!compiled ) {
-                console.log("ERROR in shader compilation:");
-                console.log( ctx.getShaderInfoLog(shader));
-            }
-        };
-    }
-
-    pub fn create_program(&self) -> WebGLProgram {
-        self.log("create_program");
-        let value = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = {};
-            h.prog = ctx.createProgram();
-            h.uniform_names = {};
-            return Module.gl.add(h);
-        };
-        WebGLProgram(value.try_into().unwrap())
-    }
-
-    pub fn link_program(&self, program: &WebGLProgram) {
-        self.log("link_program");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-            ctx.linkProgram(h.prog);
-            var result=ctx.getProgramParameter(h.prog, ctx.LINK_STATUS);
-            if (! result) {
-                console.log("ERROR while linking program :");
-                console.log(ctx.getProgramInfoLog(h.prog));
-            }
-        };
-    }
-
-    pub fn use_program(&self, program: &WebGLProgram) {
-        self.log("use_program");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-            ctx.useProgram(h.prog)
-        };
-    }
-
-    pub fn attach_shader(&self, program: &WebGLProgram, shader: &WebGLShader) {
-        self.log("attach_shader");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-            var shader = Module.gl.get(@{shader.deref()});
-            ctx.attachShader(h.prog, shader)
-        };
-    }
-
-    pub fn bind_attrib_location(&self, program: &WebGLProgram, name: &str, loc: u32) {
-        self.log("bind_attrib_location");
-        js! {
-            @(no_return)
-
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-            ctx.bindAttribLocation(h.prog,@{loc}, @{name});
-        };
-    }
-
-    pub fn get_attrib_location(&self, program: &WebGLProgram, name: &str) -> Option<u32> {
-        self.log("get_attrib_location");
-        let value = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-            var r = ctx.getAttribLocation(h.prog,@{name});
-            return r >= 0 ? r : null;
-        };
-        value.try_into().ok() as _
-    }
-
-    pub fn get_uniform_location(
-        &self,
-        program: &WebGLProgram,
-        name: &str,
-    ) -> Option<WebGLUniformLocation> {
-        self.log("get_uniform_location");
-        let value = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var h = Module.gl.get(@{program.deref()});
-
-            var name = @{name};
-            var uniform = h.uniform_names[name];
-            if(name in h.uniform_names) return h.uniform_names[name];
-
-            uniform = Module.gl.add(ctx.getUniformLocation(h.prog,name));
-            h.uniform_names[name] = uniform;
-
-            return uniform;
-        };
-
-        value.try_into().ok().map(|uni| WebGLUniformLocation {
-            reference: uni,
-            name: name.into(),
-        })
     }
 
     pub fn vertex_attrib_pointer(
@@ -302,190 +234,411 @@ impl GLContext {
         stride: u32,
         offset: u32,
     ) {
-        self.log("vertex_attribute_pointer");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-
-            ctx.vertexAttribPointer(@{location},@{size as u16},@{kind as i32},@{normalized},@{stride},@{offset});
-        };
+        gl_call!(
+            &self.gl,
+            vertex_attrib_pointer_with_i32,
+            location,
+            size as i32,
+            kind as u32,
+            normalized,
+            stride as i32,
+            offset as i32
+        );
     }
 
     pub fn enable_vertex_attrib_array(&self, location: u32) {
-        self.log("enabled_vertex_attrib_array");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.enableVertexAttribArray(@{location})
-        };
-    }
-
-    pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32) {
-        self.log("clear_color");
-
-        js! {
-            @(no_return)
-            var p = [@{r},@{g},@{b},@{a}];
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.clearColor(p[0],p[1],p[2],p[3]);
-        };
-    }
-
-    pub fn enable(&self, flag: i32) {
-        self.log("enable");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.enable(@{flag as i32});
-        };
-    }
-
-    pub fn disable(&self, flag: i32) {
-        self.log("disable");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.disable(@{flag as i32});
-        };
-    }
-
-    pub fn cull_face(&self, flag: Culling) {
-        self.log("cull_face");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.cullFace(@{flag as i32});
-        };
-    }
-
-    pub fn depth_mask(&self, b: bool) {
-        self.log("depth_mask");
-
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.depthMask(@{b});
-        }
-    }
-
-    pub fn depth_func(&self, d: DepthTest) {
-        self.log("depth_func");
-
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.depthFunc(@{d as i32});
-        }
-    }
-
-    pub fn clear_depth(&self, value: f32) {
-        self.log("clear_depth");
-
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.clearDepth(@{value});
-        }
-    }
-
-    pub fn clear(&self, bit: BufferBit) {
-        self.log("clear");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.clear(@{bit as i32})
-        };
-    }
-
-    pub fn viewport(&self, x: i32, y: i32, width: u32, height: u32) {
-        self.log("viewport");
-        let params = js! { return [@{x},@{y},@{width},@{height}] };
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            var p = @{params};
-            ctx.viewport(p[0],p[1],p[2],p[3]);
-        };
-    }
-
-    pub fn draw_elements(&self, mode: Primitives, count: usize, kind: DataType, offset: u32) {
-        self.log("draw_elemnts");
-        js!({
-            var ctx = Module.gl.get(@{self.reference});
-            ctx.drawElements(@{mode as i32},@{count as i32},@{kind as i32},@{offset as i32});
-        });
+        gl_call!(&self.gl, enable_vertex_attrib_array, location);
     }
 
     pub fn draw_arrays(&self, mode: Primitives, count: usize) {
-        self.log("draw_arrays");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.drawArrays(@{mode as i32},0,@{count as i32});
-        };
+        gl_call!(&self.gl, draw_arrays, mode as u32, 0, count as i32);
     }
 
-    pub fn read_pixels(
-        &self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        format: PixelFormat,
-        kind: PixelType,
-        data: &mut [u8],
-    ) {
-        self.log("read_pixels");
-        let data_len = data.len();
-
-        let pixels = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-
-            var pixelValues = new Uint8Array(@{data_len as u32});
-            ctx.readPixels(
-                @{x as i32},
-                @{y as i32},
-                @{width as i32},
-                @{height as i32},
-                @{format as u32},
-                @{kind as u32},
-                pixelValues,
-            );
-
-            return pixelValues;
-        };
-
-        let pixels: TypedArray<u8> = pixels.try_into().unwrap();
-        let pixels_arr: Vec<_> = pixels.into();
-
-        data.clone_from_slice(&pixels_arr);
-    }
-
-    pub fn pixel_storei(&self, storage: PixelStorageMode, value: i32) {
-        self.log("pixel_storei");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.pixelStorei(@{storage as i32},@{value});
+    fn check_error(&self, msg: &str) {
+        let code = gl_call!(&self.gl, get_error);
+        if code != web_sys::WebGl2RenderingContext::NO_ERROR {
+            print(&format!(
+                "ERROR {} {}",
+                msg,
+                match code {
+                    web_sys::WebGl2RenderingContext::INVALID_ENUM => "invalid enum",
+                    web_sys::WebGl2RenderingContext::INVALID_OPERATION => "invalid operation",
+                    web_sys::WebGl2RenderingContext::INVALID_VALUE => "invalid value",
+                    web_sys::WebGl2RenderingContext::OUT_OF_MEMORY => "out of memory",
+                    web_sys::WebGl2RenderingContext::INVALID_FRAMEBUFFER_OPERATION =>
+                        "invalid framebuffer operation",
+                    web_sys::WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "context lost webgl",
+                    _ => "unknown error",
+                },
+            ));
         }
+    }
+
+    pub fn create_shader(&self, kind: ShaderKind) -> WebGLShader {
+        if let Some(val) = gl_call!(&self.gl, create_shader, kind as u32) {
+            let id = self.add(val.into());
+            return WebGLShader(id);
+        }
+        self.check_error("create_shader");
+        unreachable!();
+    }
+
+    pub fn shader_source(&self, shader: &WebGLShader, code: &str) {
+        let shader: web_sys::WebGlShader = self.get(shader.0).unwrap().into();
+        gl_call!(&self.gl, shader_source, &shader, code);
+        self.log(&format!("shader source:\n{}", code));
+    }
+
+    pub fn create_program(&self) -> WebGLProgram {
+        let val = gl_call!(&self.gl, create_program).unwrap();
+        WebGLProgram(self.add(val.into()))
+    }
+
+    pub fn link_program(&self, program: &WebGLProgram) {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        gl_call!(&self.gl, link_program, &program);
+        let result = gl_call!(
+            &self.gl,
+            get_program_parameter,
+            &program,
+            web_sys::WebGl2RenderingContext::LINK_STATUS
+        );
+        if !result {
+            print("ERROR while linking program :");
+            print(&format!(
+                "{}",
+                gl_call!(&self.gl, get_program_info_log, &program).unwrap()
+            ));
+        }
+    }
+
+    pub fn attach_shader(&self, program: &WebGLProgram, shader: &WebGLShader) {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        let shader: web_sys::WebGlShader = self.get(shader.0).unwrap().into();
+        gl_call!(&self.gl, attach_shader, &program, &shader);
+    }
+
+    pub fn delete_buffer(&self, buffer: &WebGLBuffer) {
+        let id = buffer.0;
+        let buffer: web_sys::WebGlBuffer = self.get(id).unwrap().into();
+        gl_call!(&self.gl, delete_buffer, Some(&buffer));
+        self.remove(id);
+    }
+
+    pub fn unbind_buffer(&self, kind: BufferKind) {
+        gl_call!(&self.gl, bind_buffer, kind as u32, None);
+    }
+
+    pub fn bind_attrib_location(&self, program: &WebGLProgram, name: &str, loc: u32) {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        gl_call!(&self.gl, bind_attrib_location, &program, loc, name);
+    }
+
+    pub fn get_uniform_location(
+        &self,
+        program: &WebGLProgram,
+        name: &str,
+    ) -> Option<WebGLUniformLocation> {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        let val = gl_call!(&self.gl, get_uniform_location, &program, name);
+        val.map(|v| WebGLUniformLocation {
+            reference: self.add(v.into()),
+            name: name.to_string(),
+        })
+    }
+
+    pub fn enable(&self, flag: i32) {
+        gl_call!(&self.gl, enable, flag as u32);
+    }
+
+    pub fn disnable(&self, flag: i32) {
+        gl_call!(&self.gl, disable, flag as u32);
+    }
+
+    pub fn cull_face(&self, flag: Culling) {
+        gl_call!(&self.gl, cull_face, flag as u32);
+    }
+
+    pub fn depth_mask(&self, is_on: bool) {
+        gl_call!(&self.gl, depth_mask, is_on);
+    }
+
+    pub fn depth_func(&self, d: DepthTest) {
+        gl_call!(&self.gl, depth_func, d as u32);
+    }
+
+    pub fn clear_depth(&self, value: f32) {
+        gl_call!(&self.gl, clear_depth, value);
+    }
+
+    pub fn viewport(&self, x: i32, y: i32, width: u32, height: u32) {
+        gl_call!(&self.gl, viewport, x, y, width as i32, height as i32);
+    }
+
+    pub fn draw_elements(&self, mode: Primitives, count: usize, kind: DataType, offset: u32) {
+        gl_call!(
+            &self.gl,
+            draw_elements_with_i32,
+            mode as u32,
+            count as i32,
+            kind as u32,
+            offset as i32
+        );
     }
 
     pub fn generate_mipmap(&self) {
-        self.log("generate_mipmap");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.generateMipmap(ctx.TEXTURE_2D);
-        }
+        gl_call!(
+            &self.gl,
+            generate_mipmap,
+            web_sys::WebGl2RenderingContext::TEXTURE_2D
+        );
     }
 
     pub fn generate_mipmap_cube(&self) {
-        self.log("generate_mipmap_cube");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.generateMipmap(ctx.TEXTURE_CUBE_MAP);
+        gl_call!(
+            &self.gl,
+            generate_mipmap,
+            web_sys::WebGl2RenderingContext::TEXTURE_CUBE_MAP
+        );
+    }
+
+    pub fn create_texture(&self) -> WebGLTexture {
+        let val = gl_call!(&self.gl, create_texture);
+        WebGLTexture(self.add(val.into()))
+    }
+
+    pub fn delete_texture(&self, texture: &WebGLTexture) {
+        let id = texture.0;
+        let texture: web_sys::WebGlTexture = self.get(id).unwrap().into();
+        gl_call!(&self.gl, delete_texture, Some(&texture));
+        self.remove(id);
+    }
+
+    pub fn active_texture(&self, active: u32) {
+        gl_call!(
+            &self.gl,
+            active_texture,
+            web_sys::WebGl2RenderingContext::TEXTURE0 + active
+        );
+    }
+
+    pub fn bind_texture(&self, texture: &WebGLTexture) {
+        let texture: web_sys::WebGlTexture = self.get(texture.0).unwrap().into();
+        gl_call!(
+            &self.gl,
+            bind_texture,
+            TextureKind::Texture2d as u32,
+            Some(&texture)
+        );
+    }
+
+    pub fn unbind_texture(&self) {
+        gl_call!(&self.gl, bind_texture, TextureKind::Texture2d as u32, None);
+    }
+
+    pub fn bind_texture_cube(&self, texture: &WebGLTexture) {
+        let texture: web_sys::WebGlTexture = self.get(texture.0).unwrap().into();
+        gl_call!(
+            &self.gl,
+            bind_texture,
+            TextureKind::TextureCubeMap as u32,
+            Some(&texture)
+        );
+    }
+
+    pub fn unbind_texture_cube(&self) {
+        gl_call!(
+            &self.gl,
+            bind_texture,
+            TextureKind::TextureCubeMap as u32,
+            None
+        );
+    }
+
+    pub fn blend_equation(&self, eq: BlendEquation) {
+        gl_call!(&self.gl, blend_equation, eq as u32);
+    }
+
+    pub fn blend_func(&self, sfactor: BlendMode, dfactor: BlendMode) {
+        gl_call!(&self.gl, blend_func, sfactor as u32, dfactor as u32);
+    }
+
+    pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32) {
+        gl_call!(&self.gl, blend_color, r, g, b, a);
+    }
+
+    pub fn create_framebuffer(&self) -> WebGLFrameBuffer {
+        let val = gl_call!(&self.gl, create_framebuffer).unwrap();
+        WebGLFrameBuffer(self.add(val.into()))
+    }
+
+    pub fn delete_framebuffer(&self, fb: &WebGLFrameBuffer) {
+        let id = fb.0;
+        let fb: web_sys::WebGlFramebuffer = self.get(id).unwrap().into();
+        gl_call!(&self.gl, delete_framebuffer, Some(&fb));
+        self.remove(id);
+    }
+
+    pub fn bind_framebuffer(&self, buffer: Buffers, fb: &WebGLFrameBuffer) {
+        let fb: web_sys::WebGlFramebuffer = self.get(fb.0).unwrap().into();
+        gl_call!(&self.gl, bind_framebuffer, buffer as u32, Some(&fb));
+    }
+
+    pub fn framebuffer_texture2d(
+        &self,
+        target: Buffers,
+        attachment: Buffers,
+        textarget: TextureBindPoint,
+        texture: &WebGLTexture,
+        level: i32,
+    ) {
+        let texture: web_sys::WebGlTexture = self.get(texture.0).unwrap().into();
+        gl_call!(
+            &self.gl,
+            framebuffer_texture_2d,
+            target as u32,
+            attachment as u32,
+            textarget as u32,
+            Some(&texture),
+            level
+        );
+    }
+
+    pub fn unbind_framebuffer(&self, buffer: Buffers) {
+        gl_call!(&self.gl, bind_framebuffer, buffer as u32, None);
+    }
+
+    pub fn tex_parameteri(&self, kind: TextureKind, pname: TextureParameter, param: i32) {
+        // skip not supported flag in for webgl 1 context
+        if !self.is_webgl2 {
+            if let TextureParameter::TextureWrapR = pname {
+                return;
+            }
         }
+        gl_call!(&self.gl, tex_parameteri, kind as u32, pname as u32, param);
+    }
+
+    pub fn tex_parameterfv(&self, kind: TextureKind, pname: TextureParameter, param: f32) {
+        gl_call!(&self.gl, tex_parameterf, kind as u32, pname as u32, param);
+    }
+
+    pub fn draw_buffer(&self, buffers: &[ColorBuffer]) {
+        match &self.gl {
+            WebContext::Gl2(gl) => {
+                let color_enums: Array = buffers
+                    .iter()
+                    .map(|c| JsValue::from(*c as i32))
+                    .collect::<Array>();
+                gl.draw_buffers(&color_enums);
+            }
+            WebContext::Gl(_) => (), // not supported
+        }
+    }
+
+    pub fn uniform_matrix_3fv(&self, location: &WebGLUniformLocation, value: &[[f32; 3]; 3]) {
+        use std::mem;
+        let array = unsafe { mem::transmute::<&[[f32; 3]; 3], &[f32; 9]>(value) as &[f32] };
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(
+            &self.gl,
+            uniform_matrix3fv_with_f32_array,
+            Some(&location),
+            false,
+            &array
+        );
+    }
+
+    pub fn uniform_matrix_2fv(&self, location: &WebGLUniformLocation, value: &[[f32; 2]; 2]) {
+        use std::mem;
+        let array = unsafe { mem::transmute::<&[[f32; 2]; 2], &[f32; 4]>(value) as &[f32] };
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(
+            &self.gl,
+            uniform_matrix2fv_with_f32_array,
+            Some(&location),
+            false,
+            &array
+        );
+    }
+
+    pub fn uniform_1i(&self, location: &WebGLUniformLocation, value: i32) {
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(&self.gl, uniform1i, Some(&location), value);
+    }
+
+    pub fn uniform_1f(&self, location: &WebGLUniformLocation, value: f32) {
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(&self.gl, uniform1f, Some(&location), value);
+    }
+
+    pub fn uniform_2f(&self, location: &WebGLUniformLocation, value: (f32, f32)) {
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(&self.gl, uniform2f, Some(&location), value.0, value.1);
+    }
+
+    pub fn uniform_3f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32)) {
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(
+            &self.gl,
+            uniform3f,
+            Some(&location),
+            value.0,
+            value.1,
+            value.2
+        );
+    }
+
+    pub fn uniform_4f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32, f32)) {
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(
+            &self.gl,
+            uniform4f,
+            Some(&location),
+            value.0,
+            value.1,
+            value.2,
+            value.3
+        );
+    }
+
+    pub fn uniform_matrix_4fv(&self, location: &WebGLUniformLocation, value: &[[f32; 4]; 4]) {
+        use std::mem;
+        let array = unsafe { mem::transmute::<&[[f32; 4]; 4], &[f32; 16]>(value) as &[f32] };
+        let location: web_sys::WebGlUniformLocation = self.get(location.reference).unwrap().into();
+        gl_call!(
+            &self.gl,
+            uniform_matrix4fv_with_f32_array,
+            Some(&location),
+            false,
+            array
+        );
+    }
+
+    pub fn delete_vertex_array(&self, vao: &WebGLVertexArray) {
+        let id = vao.0;
+        match &self.gl {
+            WebContext::Gl2(gl) => {
+                let vao: web_sys::WebGlVertexArrayObject = self.get(id).unwrap().into();
+                gl.delete_vertex_array(Some(&vao));
+            }
+            WebContext::Gl(_) => (), // unsupported
+        }
+        self.remove(id);
+    }
+
+    pub fn unbind_vertex_array(&self, _vao: &WebGLVertexArray) {
+        match &self.gl {
+            WebContext::Gl2(gl) => {
+                gl.bind_vertex_array(None);
+            }
+            WebContext::Gl(_) => (), // unsupported
+        }
+    }
+
+    pub fn get_program_parameter(&self, program: &WebGLProgram, pname: ShaderParameter) -> i32 {
+        let program: web_sys::WebGlProgram = self.get(program.0).unwrap().into();
+        let val = gl_call!(&self.gl, get_program_parameter, &program, pname as u32);
+        val.as_f64().unwrap() as i32
     }
 
     pub fn tex_image2d(
@@ -498,42 +651,74 @@ impl GLContext {
         kind: PixelType,
         pixels: &[u8],
     ) {
-        self.log("tex_img2d");
-        let params1 = js! { return [@{target as u32},@{level as u32},@{format as u32}] };
-        let params2 =
-            js! { return [@{width as u32},@{height as u32},@{format as u32},@{kind as u32}] };
-
-        // TODO: It is a strange bug !!!
-        // According https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/texImage2D
-        // the format arg should be equal to internal format arg
-        // however, only DEPTH_COMPONENT16 works but not DEPTH_COMPONENT
-
-        let is_depth = match format {
-            PixelFormat::DepthComponent => true,
-            _ => false,
-        };
-
         if pixels.len() > 0 {
-            js! {
-                var p = @{params1}.concat(@{params2});
-                var ctx = Module.gl.get(@{&self.reference});
-
-                ctx.texImage2D(p[0],p[1], p[2] ,p[3],p[4],0,p[2],p[6],@{TypedArray::from(pixels)});
-            };
+            gl_call!(
+                &self.gl,
+                tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array,
+                target as u32,
+                level as i32,
+                format as i32,
+                width as i32,
+                height as i32,
+                0,
+                format as u32,
+                kind as u32,
+                Some(pixels)
+            )
+            .unwrap();
         } else {
-            js! {
-                var p = @{params1}.concat(@{params2});
-                var ctx = Module.gl.get(@{&self.reference});
+            // TODO: It is a strange bug !!!
+            // According https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/texImage2D
+            // the format arg should be equal to internal format arg
+            // however, only DEPTH_COMPONENT16 works but not DEPTH_COMPONENT
 
-                var internal_fmt =  @{format as u32};
-                var fmt = internal_fmt;
-                if ( @{is_depth}) {
-                    internal_fmt =  ctx.DEPTH_COMPONENT16;
-                }
-
-                ctx.texImage2D(p[0],p[1], internal_fmt ,p[3],p[4],0, fmt ,p[6],null);
+            let internal_format = match format {
+                PixelFormat::DepthComponent => web_sys::WebGl2RenderingContext::DEPTH_COMPONENT16,
+                _ => format as u32,
             };
+            gl_call!(
+                &self.gl,
+                tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array,
+                target as u32,
+                level as i32,
+                internal_format as i32,
+                width as i32,
+                height as i32,
+                0,
+                format as u32,
+                kind as u32,
+                None
+            )
+            .unwrap();
         }
+    }
+
+    pub fn pixel_storei(&self, storage: PixelStorageMode, value: i32) {
+        gl_call!(&self.gl, pixel_storei, storage as u32, value);
+    }
+
+    pub fn read_pixels(
+        &self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        kind: PixelType,
+        data: &mut [u8],
+    ) {
+        gl_call!(
+            &self.gl,
+            read_pixels_with_opt_u8_array,
+            x as i32,
+            y as i32,
+            width as i32,
+            height as i32,
+            format as u32,
+            kind as u32,
+            Some(data)
+        )
+        .unwrap();
     }
 
     pub fn tex_sub_image2d(
@@ -548,16 +733,20 @@ impl GLContext {
         kind: PixelType,
         pixels: &[u8],
     ) {
-        self.log("sub_tex_img2d");
-        let params1 =
-            js! { return [@{target as u32},@{level as u32},@{xoffset as u32},@{yoffset as u32}] };
-        let params2 =
-            js! { return [@{width as u32},@{height as u32},@{format as u32},@{kind as u32}] };
-        js! {
-            var p = @{params1}.concat(@{params2});
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.texSubImage2D(p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],@{TypedArray::from(pixels)});
-        };
+        gl_call!(
+            &self.gl,
+            tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array,
+            target as u32,
+            level as i32,
+            xoffset as i32,
+            yoffset as i32,
+            width as i32,
+            height as i32,
+            format as u32,
+            kind as u32,
+            Some(pixels)
+        )
+        .unwrap();
     }
 
     pub fn compressed_tex_image2d(
@@ -569,420 +758,61 @@ impl GLContext {
         height: u16,
         data: &[u8],
     ) {
-        self.log("compressed_tex_img2d");
-        let params =
-            js! { return [@{target as u32},@{level as u32},@{width as u32},@{height as u32}] };
         // for some reason this needs to be called otherwise invalid format error, extension initialization?
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-
-            // for some reason this needs to be called otherwise invalid format error, extension initialization?
-            (ctx.getExtension("WEBGL_compressed_texture_s3tc") ||
-                ctx.getExtension("MOZ_WEBGL_compressed_texture_s3tc") ||
-                ctx.getExtension("WEBKIT_WEBGL_compressed_texture_s3tc"));
-
-            var p = @{params};
-
-            ctx.compressedTexImage2D(
-                p[0],
-                p[1],
-                @{compression as u16},
-                p[2],
-                p[3],
-                0,
-                @{TypedArray::from(data)}
-            );
-
-            return 0;
-        }
-        self.log("compressed_tex_img2d end");
+        let _ = self.get_extension("WEBGL_compressed_texture_s3tc")
+            || self.get_extension("MOZ_WEBGL_compressed_texture_s3tc")
+            || self.get_extension("WEBKIT_WEBGL_compressed_texture_s3tc");
+        gl_call!(
+            &self.gl,
+            compressed_tex_image_2d_with_u8_array,
+            target as u32,
+            level as i32,
+            compression as u32,
+            width as i32,
+            height as i32,
+            0,
+            data
+        );
     }
+    /*
+       // pub fn get_active_uniform(&self, program: &WebGLProgram, location: u32) -> WebGLActiveInfo {
+       //     let res = js! {
+       //         var h = Module.gl.get(@{program.deref()});
+       //         var ctx = Module.gl.get(@{self.reference});
 
-    ///
-    pub fn create_texture(&self) -> WebGLTexture {
-        self.log("create_tex");
-        let handle = js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            return Module.gl.add(ctx.createTexture()) ;
-        };
-        WebGLTexture(handle.try_into().unwrap())
-    }
+       //         return ctx.getActiveUniform(h.prog,@{location})
+       //     };
 
-    pub fn delete_texture(&self, texture: &WebGLTexture) {
-        self.log("delete_tex");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var tex = Module.gl.get(@{&texture.0});
-            ctx.deleteTexture(tex);
-            Module.gl.remove(tex);
-        }
-    }
+       //     let name = js! { return @{&res}.name };
+       //     let size = js!{ return @{&res}.size };
+       //     let kind = js!{ return @{&res}.type };
+       //     let k: u32 = kind.try_into().unwrap();
+       //     use std::mem;
+       //     WebGLActiveInfo::new(
+       //         name.into_string().unwrap(),
+       //         size.try_into().unwrap(),
+       //         unsafe { mem::transmute::<u16, UniformType>(k as _) },
+       //         res.into_reference().unwrap(),
+       //     )
+       // }
 
-    pub fn active_texture(&self, active: u32) {
-        self.log("active_texture");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.activeTexture(ctx.TEXTURE0 + @{active})
-        }
-    }
+       // pub fn get_active_attrib(&self, program: &WebGLProgram, location: u32) -> WebGLActiveInfo {
+       //     let res = js! {
+       //         var h = Module.gl.programs[@{program.deref()}];
+       //         return @{self.reference}.getActiveAttrib(h.prog,@{location})
+       //     };
+       //     let name = js! { return @{&res}.name };
+       //     let size = js!{ return @{&res}.size };
+       //     let kind = js!{ return @{&res}.type };
+       //     let k: u32 = kind.try_into().unwrap();
+       //     use std::mem;
+       //     WebGLActiveInfo::new(
+       //         name.into_string().unwrap(),
+       //         size.try_into().unwrap(),
+       //         unsafe { mem::transmute::<u16, UniformType>(k as _) },
+       //         res.into_reference().unwrap(),
+       //     )
+       // }
 
-    pub fn bind_texture(&self, texture: &WebGLTexture) {
-        self.log("bind_tex");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var tex = Module.gl.get(@{&texture.0});
-            ctx.bindTexture(@{TextureKind::Texture2d as u32 }, tex)
-        }
-    }
-
-    pub fn unbind_texture(&self) {
-        self.log("unbind_tex");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.bindTexture(@{TextureKind::Texture2d as u32 },null)
-        }
-    }
-
-    pub fn bind_texture_cube(&self, texture: &WebGLTexture) {
-        self.log("bind_tex_cube");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            var tex = Module.gl.get(@{&texture.0});
-            ctx.bindTexture(@{TextureKind::TextureCubeMap as u32 }, tex)
-        }
-    }
-
-    pub fn unbind_texture_cube(&self) {
-        self.log("unbind_tex_cube");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.bindTexture(@{TextureKind::TextureCubeMap as u32 },null)
-        }
-    }
-
-    pub fn blend_equation(&self, eq: BlendEquation) {
-        self.log("blend_equation");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.blendEquation(@{eq as u32});
-        }
-    }
-
-    pub fn blend_func(&self, b1: BlendMode, b2: BlendMode) {
-        self.log("blend_func");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.blendFunc(@{b1 as u32},@{b2 as u32})
-        }
-    }
-
-    pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32) {
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.blendColor(@{r}, @{g}, @{b}, @{a});
-        }
-    }
-
-    pub fn uniform_matrix_4fv(&self, location: &WebGLUniformLocation, value: &[[f32; 4]; 4]) {
-        self.log("uniform_matrix_4fv");
-        use std::mem;
-        let array = unsafe { mem::transmute::<&[[f32; 4]; 4], &[f32; 16]>(value) as &[f32] };
-
-        unsafe {
-            __js_uniform4vf(
-                self.reference,
-                *location.deref(),
-                array[0],
-                array[1],
-                array[2],
-                array[3],
-                array[4],
-                array[5],
-                array[6],
-                array[7],
-                array[8],
-                array[9],
-                array[10],
-                array[11],
-                array[12],
-                array[13],
-                array[14],
-                array[15],
-                r###"
-            var ctx = Module.gl.get($0);
-            var loc = Module.gl.get($1);
-            var m = Module.gl.matrix4x4;
-            m[0] = $2;
-            m[1] = $3;
-            m[2] = $4;
-            m[3] = $5;
-            m[4] = $6;
-            m[5] = $7;
-            m[6] = $8;
-            m[7] = $9;
-            m[8] = $10;
-            m[9] = $11;
-            m[10] = $12;
-            m[11] = $13;
-            m[12] = $14;
-            m[13] = $15;
-            m[14] = $16;
-            m[15] = $17;
-
-            return ctx.uniformMatrix4fv(loc,false, m);
-        "### as *const _ as *const u8,
-            );
-        }
-    }
-
-    pub fn uniform_matrix_3fv(&self, location: &WebGLUniformLocation, value: &[[f32; 3]; 3]) {
-        self.log("uniform_matrix_3fv");
-        use std::mem;
-        let array = unsafe { mem::transmute::<&[[f32; 3]; 3], &[f32; 9]>(value) as &[f32] };
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-            ctx.uniformMatrix3fv(loc,false,@{&array})
-        }
-    }
-
-    pub fn uniform_matrix_2fv(&self, location: &WebGLUniformLocation, value: &[[f32; 2]; 2]) {
-        use std::mem;
-        let array = unsafe { mem::transmute::<&[[f32; 2]; 2], &[f32; 4]>(value) as &[f32] };
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-            ctx.uniformMatrix2fv(loc,false,@{&array})
-        }
-    }
-
-    pub fn uniform_1i(&self, location: &WebGLUniformLocation, value: i32) {
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-            ctx.uniform1i(loc,@{value})
-        }
-    }
-
-    pub fn uniform_1f(&self, location: &WebGLUniformLocation, value: f32) {
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-            ctx.uniform1f(loc,@{value});
-        }
-    }
-
-    pub fn uniform_2f(&self, location: &WebGLUniformLocation, value: (f32, f32)) {
-        js! {
-            @(no_return)
-            var p = [@{value.0},@{value.1}];
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-
-            ctx.uniform2f(loc,p[0],p[1])
-        }
-    }
-
-    pub fn uniform_3f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32)) {
-        js! {
-            @(no_return)
-            var p = [@{value.0},@{value.1},@{value.2}];
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-
-            ctx.uniform3f(loc,p[0],p[1],p[2])
-        }
-    }
-
-    pub fn uniform_4f(&self, location: &WebGLUniformLocation, value: (f32, f32, f32, f32)) {
-        js! {
-            @(no_return)
-            var p = [@{value.0},@{value.1},@{value.2},@{value.3}];
-            var ctx = Module.gl.get(@{self.reference});
-            var loc = Module.gl.get(@{location.reference});
-
-            ctx.uniform4f(loc,p[0],p[1],p[2],p[3])
-        }
-    }
-
-    pub fn create_vertex_array(&self) -> WebGLVertexArray {
-        self.log("create_vertex_array");
-        let val = js! {
-            var ctx = Module.gl.get(@{self.reference});
-            if (ctx.createVertexArray) {
-                return Module.gl.add(ctx.createVertexArray());
-            } else {
-                return 0;
-            }
-        };
-        WebGLVertexArray(val.try_into().unwrap())
-    }
-
-    pub fn delete_vertex_array(&self, vao: &WebGLVertexArray) {
-        self.log("delete_vertex_array");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            if (ctx.deleteVertexArray) {
-                var vao = Module.gl.get(@{vao.0});
-                ctx.deleteVertexArray(vao);
-            }
-        };
-    }
-
-    pub fn bind_vertex_array(&self, vao: &WebGLVertexArray) {
-        self.log("bind_vertex_array");
-        js!({
-            var ctx = Module.gl.get(@{self.reference});
-            if (ctx.bindVertexArray) {
-                var vao = Module.gl.get(@{vao.0});
-                ctx.bindVertexArray(vao);
-            }
-        });
-    }
-
-    pub fn unbind_vertex_array(&self, vao: &WebGLVertexArray) {
-        self.log("unbind_vertex_array");
-        js! {
-            @(no_return)
-            var ctx = Module.gl.get(@{self.reference});
-            if (ctx.unbindVertexArray) {
-                var vao = Module.gl.get(@{vao.0});
-                ctx.unbindVertexArray(vao);
-            }
-        }
-    }
-
-    pub fn get_program_parameter(&self, program: &WebGLProgram, pname: ShaderParameter) -> i32 {
-        let res = js! {
-            var h = Module.gl.get(@{program.deref()});
-            var ctx = Module.gl.get(@{self.reference});
-
-            return ctx.getProgramParameter(h.prog,@{pname as u32});
-        };
-
-        res.try_into().unwrap()
-    }
-
-    // pub fn get_active_uniform(&self, program: &WebGLProgram, location: u32) -> WebGLActiveInfo {
-    //     let res = js! {
-    //         var h = Module.gl.get(@{program.deref()});
-    //         var ctx = Module.gl.get(@{self.reference});
-
-    //         return ctx.getActiveUniform(h.prog,@{location})
-    //     };
-
-    //     let name = js! { return @{&res}.name };
-    //     let size = js!{ return @{&res}.size };
-    //     let kind = js!{ return @{&res}.type };
-    //     let k: u32 = kind.try_into().unwrap();
-    //     use std::mem;
-    //     WebGLActiveInfo::new(
-    //         name.into_string().unwrap(),
-    //         size.try_into().unwrap(),
-    //         unsafe { mem::transmute::<u16, UniformType>(k as _) },
-    //         res.into_reference().unwrap(),
-    //     )
-    // }
-
-    // pub fn get_active_attrib(&self, program: &WebGLProgram, location: u32) -> WebGLActiveInfo {
-    //     let res = js! {
-    //         var h = Module.gl.programs[@{program.deref()}];
-    //         return @{self.reference}.getActiveAttrib(h.prog,@{location})
-    //     };
-    //     let name = js! { return @{&res}.name };
-    //     let size = js!{ return @{&res}.size };
-    //     let kind = js!{ return @{&res}.type };
-    //     let k: u32 = kind.try_into().unwrap();
-    //     use std::mem;
-    //     WebGLActiveInfo::new(
-    //         name.into_string().unwrap(),
-    //         size.try_into().unwrap(),
-    //         unsafe { mem::transmute::<u16, UniformType>(k as _) },
-    //         res.into_reference().unwrap(),
-    //     )
-    // }
-
-    pub fn tex_parameteri(&self, kind: TextureKind, pname: TextureParameter, param: i32) {
-        // skip not supported flag in for webgl 1 context
-        if !self.is_webgl2 {
-            if let TextureParameter::TextureWrapR = pname {
-                return;
-            }
-        }
-
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            return ctx.texParameteri(@{kind as u32},@{pname as u32},@{param})
-        };
-    }
-
-    pub fn tex_parameterfv(&self, kind: TextureKind, pname: TextureParameter, param: f32) {
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            return ctx.texParameterf(@{kind as u32},@{pname as u32},@{param})
-        };
-    }
-
-    pub fn draw_buffer(&self, buffers: &[ColorBuffer]) {
-        self.log("draw_buffer");
-
-        let color_enums: Vec<i32> = buffers.iter().map(|c| *c as i32).collect();
-
-        js! {
-            @(no_return)
-
-            var ctx = Module.gl.get(@{self.reference});
-            ctx.drawBuffers(@{color_enums});
-        };
-    }
-
-    pub fn create_framebuffer(&self) -> WebGLFrameBuffer {
-        let val = js! {
-            var ctx = Module.gl.get(@{self.reference});
-            return Module.gl.add(ctx.createFramebuffer());
-        };
-        WebGLFrameBuffer(val.try_into().unwrap())
-    }
-
-    pub fn delete_framebuffer(&self, fb: &WebGLFrameBuffer) {
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            var fb = Module.gl.get(@{fb.deref()});
-            ctx.deleteFramebuffer(fb);
-        }
-    }
-
-    pub fn bind_framebuffer(&self, buffer: Buffers, fb: &WebGLFrameBuffer) {
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            var fb = Module.gl.get(@{fb.deref()});
-            ctx.bindFramebuffer(@{buffer as u32}, fb);
-        }
-    }
-
-    pub fn framebuffer_texture2d(
-        &self,
-        target: Buffers,
-        attachment: Buffers,
-        textarget: TextureBindPoint,
-        texture: &WebGLTexture,
-        level: i32,
-    ) {
-        js! {
-            var ctx = Module.gl.get(@{self.reference});
-            var tex = Module.gl.get(@{&texture.0});
-            ctx.framebufferTexture2D(@{target as u32},@{attachment as u32},@{textarget as u32},tex,@{level});
-        }
-    }
-
-    pub fn unbind_framebuffer(&self, buffer: Buffers) {
-        self.log("unbind_framebuffer");
-        js! {
-            var ctx = Module.gl.get(@{&self.reference});
-            ctx.bindFramebuffer(@{buffer as u32},null)
-        }
-    }
+    */
 }

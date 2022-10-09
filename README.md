@@ -11,14 +11,12 @@ This library provides a native/wasm compatibility layer for following components
 When used in conjonction with uni-app, on native target, it provides an OpenGL 3.2+ or OpenGLES 2.0+ Core Profile context.
 On web target, it provides a WebGL 2.0 context where available, else a WebGL 1.0 context.
 
-**This project is under heavily development, all api are very unstable until version 0.2**
-
-## Usage 
+## Usage
 
 ```toml
 [dependencies]
-uni-app="0.1.*"
-uni-gl="0.1.*"
+uni-app="0.2.*"
+uni-gl="0.2.*"
 ```
 
 ```rust
@@ -35,6 +33,7 @@ fn main() {
         headless: false,
         resizable: true,
         fullscreen: false,
+        intercept_close_request: false,
     });
     // retrieve the opengl context
     let gl = uni_gl::WebGLRenderingContext::new(app.canvas());
@@ -51,22 +50,13 @@ fn main() {
 
 ### As web app (wasm32-unknown-unknown)
 
-
-When targetting `wasm32-unknown-unknown`, stdweb currently requires Rust nightly.
-
 ```
-cargo install --force cargo-web # installs web sub command
-rustup override set nightly
 rustup target install wasm32-unknown-unknown
-cargo web start --example basic --release
 ```
 
 ### As desktop app (native-opengl)
 
-Native compilation works with current stable Rust (1.28)
-
 ```
-rustup override set stable
 cargo run --example basic --release
 ```
 
