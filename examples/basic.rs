@@ -65,9 +65,12 @@ fn main() {
         &format!(
             r##"#version {version}
             precision mediump float;
+            uniform float time;
             out vec4 FragColor;
             void main() {{
-                FragColor = vec4(1, 1, 1, 1);
+                float r=(cos(time)+1.0)*0.5;
+                float g=(sin(time)+1.0)*0.5;
+                FragColor = vec4(r,g,0.5,1);
             }}
         "##,
         ),
@@ -100,9 +103,12 @@ fn main() {
 
     // start game loop
     app.run(move |_app: &mut uni_app::App| {
+        let now = uni_app::now();
+        let time = gl.get_uniform_location(&program, "time").unwrap();
+        gl.uniform_1f(&time, now as f32);
         gl.clear_color(0.0, 0.0, 0.0, 1.0);
         gl.clear(uni_gl::BufferBit::Color);
-        // render a white triangle
+        // render a triangle
         gl.draw_arrays(uni_gl::Primitives::Triangles, vert_count);
     });
 }
