@@ -11,6 +11,7 @@ documentation = "https://docs.rs/uni-gl"
 repository = "https://github.com/unrust/uni-gl"
 keywords = ["opengl", "wasm", "webgl"]
 edition = "2021"
+exclude = ["www/*"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -35,5 +36,4 @@ web-sys = { version = "0.3.60", features = [
 ] }
 
 [dev-dependencies]
-#uni-app = "0.2.*"
-uni-app = { path = "../uni-app" }
+uni-app = "0.2.*"

@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 path = "basic.rs"
 
 [dependencies]
-uni-app = { path = "../../uni-app" }
+uni-app = "0.2.*"
 uni-gl = { path = ".." }
 
 [target.wasm32-unknown-unknown.dependencies]
