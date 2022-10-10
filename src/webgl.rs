@@ -351,7 +351,7 @@ impl GLContext {
         gl_call!(&self.gl, enable, flag as u32);
     }
 
-    pub fn disnable(&self, flag: i32) {
+    pub fn disable(&self, flag: i32) {
         gl_call!(&self.gl, disable, flag as u32);
     }
 

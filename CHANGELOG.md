@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.2.0] - 2020-10-10
+## [0.2.1] - Unreleased
+### Fixed
+- missing disable function on webgl
+
+## [0.2.0] - 2022-10-10
 ### Changed
 - upgrade to rust edition 2021
 - replace unmaintained cargo-web/stdweb with wasm_bindgen/web-sys
