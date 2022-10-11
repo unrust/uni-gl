@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.1] - Unreleased
+## [0.2.1] - 2022-10-11
 ### Fixed
 - missing disable function on webgl
 

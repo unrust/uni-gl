@@ -50,9 +50,27 @@ fn main() {
 
 ### As web app (wasm32-unknown-unknown)
 
+Install wasm32 target :
 ```
 rustup target install wasm32-unknown-unknown
 ```
+Install [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
+and [npm](https://www.npmjs.com/get-npm)
+
+Compile the demo with
+```
+wasm-pack build examples
+```
+This creates a wasm package in examples/pkg
+
+Run the demo with
+```
+cd www
+npm install
+npm run start
+```
+
+Open your browser at http://localhost:8080/
 
 ### As desktop app (native-opengl)
 
