@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.3.0] - Unreleased
+- uses uni-app 0.3.*
+
 ## [0.2.1] - 2022-10-11
 ### Fixed
 - missing disable function on webgl

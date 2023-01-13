@@ -15,8 +15,8 @@ On web target, it provides a WebGL 2.0 context where available, else a WebGL 1.0
 
 ```toml
 [dependencies]
-uni-app="0.2.*"
-uni-gl="0.2.*"
+uni-app="0.3.*"
+uni-gl="0.3.*"
 ```
 
 ```rust
